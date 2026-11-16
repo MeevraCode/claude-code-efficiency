@@ -27,6 +27,23 @@ Where the money went in run A: $0.47 cache writes, $0.16 output, $0.14 cache rea
 
 My first post said $1.05 vs $0.61 (-42%). That version priced every cache write at the 1-hour cache rate (2x input). The transcripts show these subagents used the 5-minute cache (1.25x input), so the right numbers are $0.77 vs $0.46. The saving barely moves: -42% became -40%. The script reads the cache type from each request, so it gets this right.
 
+## Second test: effort low vs xhigh (2026-11-16)
+
+A reader measured Opus on a 3D scene: $6.74 on xhigh vs $1.97 on low, and low didn't look worse. So I ran the same read-only question twice more, plain prompt (no rules), Opus 5.5, fresh subagents, only the effort changed.
+
+| | low | xhigh |
+|---|---:|---:|
+| API-equivalent cost | $0.57 | **$0.51** |
+| Requests | 7 | 9 |
+| Tool calls | 6 | 13 |
+| Wall time | 26 s | 42 s |
+| New tokens added to context | 87K | 56K |
+| Cache reads | 481K | 754K |
+| Output tokens | 2K | 4K |
+| Answer | correct, the core points with file:line refs | correct, more detail (manifest schema versions, error types) |
+
+xhigh came out about 10% cheaper. Low made fewer calls but pulled more file text into context per call, and new context is the expensive part. My read: when a task is mostly reading code, effort barely moves the bill and the search rules matter more. When a task generates a lot (a 3D scene, a big feature), effort is the big lever. Two data points, so test it on your own work.
+
 ## Caveats
 
 - One run each. Treat it as a direction, not a benchmark.
