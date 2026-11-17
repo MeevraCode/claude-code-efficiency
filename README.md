@@ -117,6 +117,8 @@ What it said about 9 of the hit companies' homepages on 17 Nov, a day after the 
 
 It agrees with Report URI on HSBC: the CSP blocks the new domain and the data theft, but `'unsafe-eval'` lets the inline backup copy run.
 
+Then I ran it on the homepage of every organisation on Report URI's list: **152 of the 178 checked**. The `eval()` fallback would run on 151, a payload from a new domain would load on 111, stolen data could go out on 111, and 71 still load the Optimizely snippet. Method, sector table and caveats: [docs/optimizely-scan-2026-11-17.md](docs/optimizely-scan-2026-11-17.md).
+
 It reads the HTML and headers the server returns, so scripts a tag manager injects later don't show up. It shows exposure, not infection.
 
 **No install, from the browser:** open your page, press F12, paste [`tools/script_audit_console.js`](tools/script_audit_console.js) into the Console. It lists the scripts the browser really loaded, including the ones a tag manager added later, and answers the same three questions. It makes one request, to the page you are on, to read the CSP headers. Read it first (about 110 lines): don't paste code you haven't read into a console.

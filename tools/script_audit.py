@@ -40,6 +40,7 @@ CONNECT_SCHEMES = ("http", "https", "ws", "wss")
 TWO_PART_SUFFIXES = {
     "co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "net.au", "co.nz", "co.jp",
     "com.br", "com.cn", "com.tr", "co.in", "co.za", "com.mx", "com.sg", "com.hk",
+    "com.my", "com.tw", "com.vn", "com.eg", "com.ph", "co.id", "co.kr", "com.ar",
 }
 
 
@@ -233,6 +234,8 @@ def audit(url):
         "third_party_domains": dict(sorted(domains.items(), key=lambda kv: -kv[1])),
         "third_party_with_sri": sum(t["sri"] for t in third),
         "loads_optimizely": any("optimizely" in t["host"] for t in third),
+        # wider: an Optimizely CDN host anywhere in the HTML (inline loader, preload link)
+        "optimizely_in_html": bool(re.search(r"cdn(-pci)?\.optimizely\.com", html, re.I)),
         "csp": csp_label_for(policies, ro),
         "csp_unsafe_eval": says_unsafe_eval and hijack["eval_fallback"] == "runs",
         "if_a_vendor_script_is_hijacked": hijack,
@@ -255,6 +258,8 @@ def print_report(r):
         print(f"  SRI on other-domain scripts: {r['third_party_with_sri']} of {r['scripts_third_party']}")
     if r["loads_optimizely"]:
         print("  loads Optimizely: yes")
+    elif r["optimizely_in_html"]:
+        print("  loads Optimizely: referenced in the HTML (loader or preload)")
     print(f"  CSP: {r['csp']}{' (allows unsafe-eval)' if r['csp_unsafe_eval'] else ''}")
     h = r["if_a_vendor_script_is_hijacked"]
     print("  if one of those scripts got hijacked like Optimizely's:")

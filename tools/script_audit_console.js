@@ -17,7 +17,8 @@
 // short; scroll and click around first to catch lazy scripts. Exposure, not infection.
 (async () => {
   const TWO_PART = new Set(['co.uk', 'org.uk', 'ac.uk', 'gov.uk', 'com.au', 'net.au', 'co.nz', 'co.jp',
-    'com.br', 'com.cn', 'com.tr', 'co.in', 'co.za', 'com.mx', 'com.sg', 'com.hk']);
+    'com.br', 'com.cn', 'com.tr', 'co.in', 'co.za', 'com.mx', 'com.sg', 'com.hk',
+    'com.my', 'com.tw', 'com.vn', 'com.eg', 'com.ph', 'co.id', 'co.kr', 'com.ar']);
   const siteOf = (host) => {
     const p = host.toLowerCase().split('.');
     return p.slice(p.length >= 3 && TWO_PART.has(p.slice(-2).join('.')) ? -3 : -2).join('.');
