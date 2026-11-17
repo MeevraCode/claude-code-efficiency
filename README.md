@@ -134,6 +134,38 @@ If a page sends more than one policy (two headers, or a header and a meta tag), 
 
 **In Claude Code:** copy [`skills/third-party-scripts`](skills/third-party-scripts/SKILL.md) to `~/.claude/skills/`, then ask "check my app's third-party scripts". It finds every script your code loads from other domains and your CSP config, answers the same questions with file:line proof, and proposes a Report-Only CSP before changing anything.
 
+## Check your Electron app
+
+A desktop app has the same hole, with more behind it: a script that gets into the window (a poisoned npm package, an HTML-injection bug, a hijacked vendor script) can also call whatever the preload bridge exposes. [`tools/electron_audit.py`](tools/electron_audit.py) reads the project's files and answers one question: if a script gets into the renderer, what can it reach? Python 3.8+, no dependencies. It never runs, builds or installs your project.
+
+```
+python tools/electron_audit.py path/to/your-electron-app
+python tools/electron_audit.py path/to/your-electron-app --fail-on high   # exit 1 in CI
+```
+
+It checks the renderer CSP (meta tags in the built HTML first, then source HTML and policies set in code; Report-Only counts as nothing), risky `webPreferences`, navigation handlers and URL prefix checks in them, IPC handlers and whether they check the sender, the preload bridge, and sinks worth a manual look (`shell.openExternal`, `<webview>`, `innerHTML`, `eval`). Every finding has a file:line. The report ends like this (example for a made-up notes app):
+
+```
+navigation
+  will-navigate handler: yes; window open handler: no
+  [high] main.js:15  will-navigate: startsWith('file:'): any local HTML file may load in this window, with the preload bridge
+  [medium] no setWindowOpenHandler: window.open() can create new windows
+
+IPC handlers
+  24 handlers; sender check: none
+  [high] 24 of 24 IPC handlers do not check the sender: any frame that can reach the bridge can call them
+
+findings: 3 high, 2 medium, 0 info
+
+if a script gets into the renderer:
+  payload from a new domain: loads
+  eval() fallback:           runs
+  stolen data sent out:      not blocked
+  IPC bridge it can call:    24 methods, no sender check
+```
+
+Limits: it is a static regex checker. It finds patterns, not proof: a finding is a place to look, and a clean report is not an audit. A CSP set at runtime in a way it doesn't know (a helper library, an object of directives, a custom protocol handler) is missed, and it can't tell whether a sender check is correct, only that one is there. Tests: `python -m unittest discover -s tests`.
+
 ## FAQ
 
 **Will the answers get worse?** Not in my test: same conclusions, same file:line refs. If a task truly needs exploring (new repo, architecture review), say so in the prompt. The rules are defaults, not handcuffs.

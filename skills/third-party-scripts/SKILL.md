@@ -33,5 +33,8 @@ Answer four questions for this app with file:line proof. Change nothing until th
    - Subresource Integrity only for files that never change; vendor scripts that change can't use it
 6. Output: a table (domain, loaded from, purpose, keep?), the four answers, the proposed policy. Under 40 lines.
 
-Desktop apps (Electron, Tauri): the same questions apply to the renderer. Check the CSP meta tag in the HTML
-and any `session.webRequest` header code.
+Desktop apps (Electron, Tauri): the same questions apply to the renderer. For Electron, run
+`python tools/electron_audit.py <project folder>` from the same repo: it reads the CSP (built HTML, source HTML,
+code), `webPreferences`, navigation handlers, IPC sender checks and the preload bridge, with file:line. It is a
+static pattern check, so confirm each finding in the code. For Tauri, check the CSP in `tauri.conf.json` and the
+meta tag in the HTML by hand.
