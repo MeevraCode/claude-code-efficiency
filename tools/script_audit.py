@@ -12,6 +12,9 @@ any page:
   3. would an eval() fallback run?                           ('unsafe-eval')
   4. could stolen data be sent out?                          (connect-src)
 
+A page can send several policies (headers, comma-separated lists, meta tags). Each one is
+enforced on its own, so something is allowed only if every policy allows it.
+
 Usage:
   python tools/script_audit.py https://example.com [more URLs...]
   python tools/script_audit.py --json https://example.com
@@ -32,6 +35,8 @@ from html.parser import HTMLParser
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0 Safari/537.36")
 MAX_BYTES = 6_000_000
+SCRIPT_SCHEMES = ("http", "https")
+CONNECT_SCHEMES = ("http", "https", "ws", "wss")
 TWO_PART_SUFFIXES = {
     "co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "net.au", "co.nz", "co.jp",
     "com.br", "com.cn", "com.tr", "co.in", "co.za", "com.mx", "com.sg", "com.hk",
@@ -44,6 +49,12 @@ def site_of(host):
     if len(parts) >= 3 and ".".join(parts[-2:]) in TWO_PART_SUFFIXES:
         return ".".join(parts[-3:])
     return ".".join(parts[-2:])
+
+
+def is_js_type(t):
+    """<script type="application/ld+json"> and friends are data, the browser never runs them."""
+    t = t.strip().lower()
+    return t in ("", "module") or "javascript" in t or "ecmascript" in t
 
 
 class ScriptParser(HTMLParser):
@@ -61,7 +72,7 @@ class ScriptParser(HTMLParser):
             if a.get("src"):
                 self.scripts.append({"src": a["src"], "integrity": a.get("integrity", ""),
                                      "type": a.get("type", "")})
-            else:
+            elif is_js_type(a.get("type", "")):
                 self._in_inline, self._inline_buf = True, []
         elif tag == "meta" and a.get("http-equiv", "").lower() == "content-security-policy":
             self.meta_csp.append(a.get("content", ""))
@@ -87,6 +98,13 @@ def parse_csp(text):
     return out
 
 
+def parse_policies(values):
+    """One dict per policy. A header value can hold several policies separated by commas,
+    and a page can send several headers and meta tags. The browser enforces each policy
+    on its own, so they must not be merged into one."""
+    return [p for v in values for p in map(parse_csp, (v or "").split(",")) if p]
+
+
 def fetch(url):
     req = urllib.request.Request(url, headers={
         "User-Agent": UA, "Accept": "text/html,application/xhtml+xml",
@@ -104,27 +122,73 @@ def policy_for(csp, *names):
     return None
 
 
-def any_host(values):
-    return any(v in ("*", "https:", "http:", "http://*", "https://*") for v in values)
+def any_host(values, schemes=SCRIPT_SCHEMES):
+    """True if the source list matches every host: *, https:, https://* and the like."""
+    for v in values:
+        m = re.fullmatch(r"([a-z][a-z0-9+.-]*):(//\*(:(\*|\d+))?)?", v)
+        if v == "*" or (m and m.group(1) in schemes):
+            return True
+    return False
 
 
-def assess(csp):
-    """Answers the three hijack questions for one enforced policy (or None)."""
-    if csp is None:
-        return {"new_domain_script": "loads", "eval_fallback": "runs",
-                "data_out": "not blocked"}
+def script_rule(csp):
+    """How one policy treats a <script src> from a domain it has never seen."""
     elem = policy_for(csp, "script-src-elem", "script-src", "default-src")
+    if elem is None:
+        return "unlimited"
+    if "'strict-dynamic'" in elem:      # host and scheme sources are ignored then
+        return "strict-dynamic"
+    return "any host" if any_host(elem) else "blocked"
+
+
+def eval_allowed(csp):
+    """eval() follows script-src (never script-src-elem). 'wasm-unsafe-eval' doesn't allow it."""
     evalp = policy_for(csp, "script-src", "default-src")
-    conn = policy_for(csp, "connect-src", "default-src")
-    if elem is None or any_host(elem):
-        new_domain = "loads"
-    elif "'strict-dynamic'" in elem:
+    return evalp is None or "'unsafe-eval'" in evalp
+
+
+def open_to_any_host(csp, schemes, *names):
+    src = policy_for(csp, *names)
+    return src is None or any_host(src, schemes)
+
+
+def assess(policies):
+    """Answers the three hijack questions. `policies` is the list of enforced policies;
+    something is allowed only if every one of them allows it."""
+    if isinstance(policies, dict):
+        policies = [policies]
+    if not policies:
+        return {"new_domain_script": "loads", "eval_fallback": "runs",
+                "data_out": "not blocked", "other_ways_out": []}
+    rules = [script_rule(p) for p in policies]
+    if "blocked" in rules:
+        new_domain = "blocked"
+    elif "strict-dynamic" in rules:
         new_domain = "loads ('strict-dynamic' trusts what a trusted script adds)"
     else:
-        new_domain = "blocked"
-    eval_ = "runs" if evalp is None or "'unsafe-eval'" in evalp else "blocked"
-    data_out = "not blocked" if conn is None or any_host(conn) else "blocked"
-    return {"new_domain_script": new_domain, "eval_fallback": eval_, "data_out": data_out}
+        new_domain = "loads"
+    eval_ = "runs" if all(eval_allowed(p) for p in policies) else "blocked"
+    conn = all(open_to_any_host(p, CONNECT_SCHEMES, "connect-src", "default-src") for p in policies)
+    # connect-src covers fetch, XHR, WebSocket and sendBeacon. An image request or a form
+    # post carries data out too, and those follow img-src and form-action.
+    other = []
+    if all(open_to_any_host(p, SCRIPT_SCHEMES, "img-src", "default-src") for p in policies):
+        other.append("img-src")
+    if all(open_to_any_host(p, SCRIPT_SCHEMES, "form-action") for p in policies):
+        other.append("form-action")
+    return {"new_domain_script": new_domain, "eval_fallback": eval_,
+            "data_out": "not blocked" if conn else "blocked", "other_ways_out": other}
+
+
+def csp_label_for(policies, report_only):
+    if not policies:
+        return "report-only (monitors, blocks nothing)" if report_only else "none"
+    rules = [r for r in map(script_rule, policies) if r != "unlimited"]
+    if not rules:
+        return "enforced, but it doesn't limit scripts"
+    if all(r == "any host" for r in rules):
+        return "enforced, but scripts may come from any https host"
+    return "enforced"
 
 
 def audit(url):
@@ -155,18 +219,10 @@ def audit(url):
 
     hdr = headers.get_all("Content-Security-Policy") or []
     ro = headers.get_all("Content-Security-Policy-Report-Only") or []
-    enforced = "; ".join(hdr + p.meta_csp)
-    csp = parse_csp(enforced) if enforced.strip() else None
-    if csp is None:
-        csp_label = "report-only (monitors, blocks nothing)" if ro else "none"
-    else:
-        elem = policy_for(csp, "script-src-elem", "script-src", "default-src")
-        if elem is None:
-            csp_label = "enforced, but it doesn't limit scripts"
-        elif any_host(elem):
-            csp_label = "enforced, but scripts may come from any https host"
-        else:
-            csp_label = "enforced"
+    policies = parse_policies(hdr + p.meta_csp)
+    hijack = assess(policies)
+    says_unsafe_eval = any("'unsafe-eval'" in (policy_for(c, "script-src", "default-src") or [])
+                           for c in policies)
     domains = {}
     for t in third:
         domains[t["host"]] = domains.get(t["host"], 0) + 1
@@ -177,9 +233,9 @@ def audit(url):
         "third_party_domains": dict(sorted(domains.items(), key=lambda kv: -kv[1])),
         "third_party_with_sri": sum(t["sri"] for t in third),
         "loads_optimizely": any("optimizely" in t["host"] for t in third),
-        "csp": csp_label,
-        "csp_unsafe_eval": bool(csp and "'unsafe-eval'" in (policy_for(csp, "script-src", "default-src") or [])),
-        "if_a_vendor_script_is_hijacked": assess(csp),
+        "csp": csp_label_for(policies, ro),
+        "csp_unsafe_eval": says_unsafe_eval and hijack["eval_fallback"] == "runs",
+        "if_a_vendor_script_is_hijacked": hijack,
     }
 
 
@@ -205,6 +261,8 @@ def print_report(r):
     print(f"    payload from a new domain: {h['new_domain_script']}")
     print(f"    eval() fallback:           {h['eval_fallback']}")
     print(f"    stolen data sent out:      {h['data_out']}")
+    if h["data_out"] == "blocked" and h.get("other_ways_out"):
+        print(f"      (that is fetch/XHR/WebSocket; still open to any host: {', '.join(h['other_ways_out'])})")
 
 
 def main():

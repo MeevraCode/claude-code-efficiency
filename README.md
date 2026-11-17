@@ -119,6 +119,17 @@ It agrees with Report URI on HSBC: the CSP blocks the new domain and the data th
 
 It reads the HTML and headers the server returns, so scripts a tag manager injects later don't show up. It shows exposure, not infection.
 
+**No install, from the browser:** open your page, press F12, paste [`tools/script_audit_console.js`](tools/script_audit_console.js) into the Console. It lists the scripts the browser really loaded, including the ones a tag manager added later, and answers the same three questions. It makes one request, to the page you are on, to read the CSP headers. Read it first (about 110 lines): don't paste code you haven't read into a console.
+
+**In CI:** [`tools/script_audit_ci.py`](tools/script_audit_ci.py) exits 1 when a page would let a hijacked script send data out or run an `eval()` fallback, so a deploy that drops the CSP fails on staging. GitHub Actions example: [`docs/ci-example.md`](docs/ci-example.md).
+
+```
+python tools/script_audit_ci.py https://staging.your-site.com
+python tools/script_audit_ci.py --fail-on data-out,eval,new-domain https://staging.your-site.com
+```
+
+If a page sends more than one policy (two headers, or a header and a meta tag), all three tools treat each one separately, the way the browser does: something is allowed only if every policy allows it.
+
 **In Claude Code:** copy [`skills/third-party-scripts`](skills/third-party-scripts/SKILL.md) to `~/.claude/skills/`, then ask "check my app's third-party scripts". It finds every script your code loads from other domains and your CSP config, answers the same questions with file:line proof, and proposes a Report-Only CSP before changing anything.
 
 ## FAQ
