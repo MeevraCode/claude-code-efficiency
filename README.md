@@ -4,6 +4,8 @@
 
 Plus the habits that keep a full workday of mine at about 25% of the weekly limit, and a small script that shows what your own sessions really cost.
 
+**New (17 Nov):** a free check for the Optimizely-style hole in your own site, plus a Claude Code skill that audits your app's third-party scripts. [Jump to it](#check-your-site-for-the-optimizely-style-hole).
+
 I use Claude Code every day on a production app: Fable 5.2 plans and reviews, Opus 5.5 does the work. Every number below comes from my own transcripts, not from a benchmark I read somewhere.
 Danny, [@hasesify](https://x.com/hasesify)
 
@@ -92,6 +94,32 @@ with-rules                 48s     8    12     0      16      47K     628K      
 ```
 
 It reads the cache type of every request (5-minute or 1-hour), which matters: pricing every write at the 1-hour rate overstated my first A/B numbers. Prices live at the top of the script; check them against [anthropic.com/pricing](https://www.anthropic.com/pricing).
+
+## Check your site for the Optimizely-style hole
+
+On 16 Nov 2026 attackers wrote code into the Optimizely snippets that 178+ organisations load (BBC, Zoom, HSBC, GitLab, IKEA...). For about 19 hours it swapped crypto addresses, skimmed cards, sent cookies and screenshots out, and pushed iOS exploits. Full write-up: [Report URI](https://blog.report-uri.com/worlds-largest-brands-infected-with-malware-via-optimizely/).
+
+[`tools/script_audit.py`](tools/script_audit.py) asks any page the same questions. Which scripts come from other domains? If one of them got hijacked, would a payload from a new domain load, would an `eval()` fallback run, could stolen data be sent out? Python 3.8+, no dependencies.
+
+```
+python tools/script_audit.py https://your-site.com
+```
+
+What it said about 9 of the hit companies' homepages on 17 Nov, a day after the cleanup:
+
+| If one of their vendor scripts got hijacked again | Homepages |
+|---|---:|
+| No CSP at all | 5 of 9 |
+| A payload from a brand-new domain would load | 7 of 9 |
+| Stolen data could be sent out | 7 of 9 |
+| The `eval()` backup the attackers shipped would run | 9 of 9 |
+| Scripts from other domains with SRI | 0 of 88 |
+
+It agrees with Report URI on HSBC: the CSP blocks the new domain and the data theft, but `'unsafe-eval'` lets the inline backup copy run.
+
+It reads the HTML and headers the server returns, so scripts a tag manager injects later don't show up. It shows exposure, not infection.
+
+**In Claude Code:** copy [`skills/third-party-scripts`](skills/third-party-scripts/SKILL.md) to `~/.claude/skills/`, then ask "check my app's third-party scripts". It finds every script your code loads from other domains and your CSP config, answers the same questions with file:line proof, and proposes a Report-Only CSP before changing anything.
 
 ## FAQ
 
