@@ -4,7 +4,9 @@
 
 Plus the habits that keep a full workday of mine at about 25% of the weekly limit, and a small script that shows what your own sessions really cost.
 
-**New (17 Nov):** a free check for the Optimizely-style hole in your own site, plus a Claude Code skill that audits your app's third-party scripts. [Jump to it](#check-your-site-for-the-optimizely-style-hole).
+**New (18 Nov):** where did my Claude limit go? A script that splits a week of your Claude Code usage into the habits behind it, each with its fix. [Jump to it](#where-did-my-limit-go).
+
+**17 Nov:** a free check for the Optimizely-style hole in your own site, plus a Claude Code skill that audits your app's third-party scripts. [Jump to it](#check-your-site-for-the-optimizely-style-hole).
 
 I use Claude Code every day on a production app: Fable 5.2 plans and reviews, Opus 5.5 does the work. Every number below comes from my own transcripts, not from a benchmark I read somewhere.
 Danny, [@hasesify](https://x.com/hasesify)
@@ -93,7 +95,43 @@ no-rules                 1m12s     9    16     0      18      94K     696K      
 with-rules                 48s     8    12     0      16      47K     628K      5K 93.0%     0.46  opus-5-5
 ```
 
+Fixed 18 Nov: it now counts workflow agents too (they sit in `subagents/workflows/<run>/`). Before the fix one of my sessions showed $414 instead of $1,114.
+
 It reads the cache type of every request (5-minute or 1-hour), which matters: pricing every write at the 1-hour rate overstated my first A/B numbers. Prices live at the top of the script; check them against [anthropic.com/pricing](https://www.anthropic.com/pricing).
+
+## Where did my limit go?
+
+`claude_usage.py` tells you how much. [`tools/limit_leaks.py`](tools/limit_leaks.py) tells you why: it reads the same transcripts and splits what they cost into the habits behind it, each with its fix.
+
+```
+python tools/limit_leaks.py                         # last 7 days, all projects
+python tools/limit_leaks.py --days 30 --project myrepo
+python tools/limit_leaks.py path/to/session.jsonl   # one session (its subagents are added)
+```
+
+What it looks for:
+
+- **Cold restarts.** A request that had to write the whole chat to the cache again, with the cause: you came back after the cache expired (habit 4), switched models mid-chat (habit 6), compacted (habit 3), or the setup changed mid-chat.
+- **The setup every request carries.** System prompt, tools, MCP servers and CLAUDE.md, measured as the size of each session's first request (habits 7 and 8).
+- **Long chats.** What the part above 200K tokens cost in cache reads (habit 1).
+- **Tool results riding along.** A tool result is written to the cache once and then read again by every later request until the chat ends or compacts. It lists the most expensive single results (a whole-file read, a full test log, a screenshot) and the cost per tool (rules 2 and 9).
+- **Subagents and output** (rules 3 and 5), plus the cost per model and per effort level.
+
+My last 7 days (11-18 Nov): 8 sessions, 20 subagents, 8,220 requests, $1,508 at API prices, 70% of it Fable 5.2.
+
+| Where it went | Share | Fix |
+|---|---:|---|
+| Chats past 200K tokens (the part above 200K, in 7,029 requests) | 29% | habit 1 |
+| Output (answers, thinking, code) | 23% | rule 5 |
+| Tool results riding along (12,134 results) | 14% | rules 2 and 9 |
+| Setup every request carries (first request: median 85K tokens) | 10% | habits 7 and 8 |
+| Resumed a chat after the cache expired (23 times) | 6% | habit 4 |
+| Subagents (20) | 4% | rule 3 |
+| Re-writes after a compaction (36, 30 of them automatic) | 2% | habit 3 |
+
+My biggest leak is long chats: most of my requests carried more than 200K tokens of history. The most expensive single tool results were one notes file of 9-15K tokens, read whole 7 times, each copy carried by 170-270 later requests.
+
+Rows overlap, so they add up to more than 100%: a big tool result in a long chat counts in both rows. Dollars are API list prices for the same tokens, a yardstick for comparing your own habits, not your bill. Tool-result tokens are estimated from their size (4 characters per token) and capped by the measured growth of the context. Python 3.8+, no dependencies, nothing leaves your machine.
 
 ## Check your site for the Optimizely-style hole
 
