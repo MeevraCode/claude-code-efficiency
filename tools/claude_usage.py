@@ -140,7 +140,7 @@ def main():
         tot.add_file(path)
         sub_dir = path.with_suffix("") / "subagents"
         if not args.no_subagents and sub_dir.is_dir():
-            for sub in sorted(sub_dir.glob("*.jsonl")):
+            for sub in sorted(sub_dir.rglob("*.jsonl")):  # workflow agents sit in subagents/workflows/<run>/
                 tot.add_file(sub)
                 tot.subagents += 1
         s = tot.summary()
